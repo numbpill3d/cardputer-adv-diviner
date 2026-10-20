@@ -82,6 +82,26 @@ void glyphsCentre(const DaedricFont &f, const char *text, int cx, int y, uint16_
     glyphs(f, text, cx - glyphWidth(f, text) / 2, y, fg);
 }
 
+float smoothstep(float e0, float e1, float x) {
+    if (e1 <= e0) return x < e0 ? 0.f : 1.f;
+    float t = (x - e0) / (e1 - e0);
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return t * t * (3 - 2 * t);
+}
+
+// Runes fade out over the first ~60% of the reveal; the latin word fades in
+// over the last ~55%, so they briefly cross-dissolve in place.
+void wordDissolve(const DaedricFont &f, const char *s, int cx, int yRune, int yLatin,
+                  float reveal, uint16_t runeCol, uint16_t latCol, uint16_t bg, int latSize) {
+    float runeA = 1.f - smoothstep(0.0f, 0.6f, reveal);
+    float latA = smoothstep(0.45f, 1.0f, reveal);
+    if (runeA > 0.02f)
+        glyphsCentre(f, s, cx, yRune, blend(runeCol, bg, (uint8_t)(runeA * 255)));
+    if (latA > 0.02f)
+        textCentre(s, cx, yLatin, blend(latCol, bg, (uint8_t)(latA * 255)), latSize);
+}
+
 void diamond(int cx, int cy, int r, uint16_t c, bool filled) {
     Canvas &cv = hal::canvas();
     if (filled) {

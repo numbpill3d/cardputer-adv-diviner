@@ -28,6 +28,13 @@ int glyphWidth(const DaedricFont &f, const char *text, int spacing = 2);
 int glyphs(const DaedricFont &f, const char *text, int x, int y, uint16_t fg, int spacing = 2);
 void glyphsCentre(const DaedricFont &f, const char *text, int cx, int y, uint16_t fg);
 
+// Reveal animation: the same word drawn as Daedric runes dissolving into latin
+// letters as `reveal` runs 0..1 (0 = pure runes, 1 = pure english). Both are
+// centred on cx; alpha blends toward `bg`. Use for selected menu/list items.
+void wordDissolve(const DaedricFont &f, const char *s, int cx, int yRune, int yLatin,
+                  float reveal, uint16_t runeCol, uint16_t latCol, uint16_t bg, int latSize = 1);
+float smoothstep(float e0, float e1, float x);
+
 void diamond(int cx, int cy, int r, uint16_t c, bool filled = true);
 void frame(int x, int y, int w, int h, uint16_t line, uint16_t stud);
 

@@ -24,6 +24,7 @@ struct State {
     char joining[33] = "";
     uint32_t lastScan = 0;
     bool scanning = true;
+    bool capAsked = false; // ran the captive-portal check for this link yet
 } *S = nullptr;
 
 void enter() {
@@ -47,6 +48,8 @@ bool onKey(const hal::Key &k) {
         return true;
     }
     if (k.ch == 'r') { net::wifiScan(s.aps); s.scanning = true; return true; }
+    if (k.ch == 'p') { net::captiveAccept(); return true; } // accept a captive portal
+
     if (s.aps.empty()) return true;
     if (k.nav == hal::N_UP) s.sel = (s.sel + s.aps.size() - 1) % s.aps.size();
     else if (k.nav == hal::N_DOWN) s.sel = (s.sel + 1) % s.aps.size();
@@ -88,6 +91,11 @@ void draw(uint32_t now) {
         snprintf(line, sizeof line, "%s", st);
     textRight(line, 178, 5, ws == net::WST_ONLINE ? C_GLOW : C_DIM);
 
+    // once a link is up, probe for a captive portal (walled garden) once
+    if (ws == net::WST_ONLINE) { if (!s.capAsked) { net::captiveCheck(); s.capAsked = true; } }
+    else s.capAsked = false;
+    net::PortalState ps = net::captiveState();
+
     if (s.phase == ASKPASS) {
         cv.fillRect(14, 40, 212, 54, C_DUSK);
         frame(14, 40, 212, 54, C_RUST, C_EMBER);
@@ -107,9 +115,13 @@ void draw(uint32_t now) {
     }
     if (s.aps.empty()) {
         textCentre(s.scanning ? "scrying the aether..." : "no networks", 120, 60, C_DIM);
-        // a little spinner
-        float a = now * 0.006f;
-        diamond(120 + (int)(cosf(a) * 14), 74 + (int)(sinf(a) * 8), 2, C_RUST);
+        if (s.scanning) {
+            float a = now * 0.006f;
+            diamond(120 + (int)(cosf(a) * 14), 74 + (int)(sinf(a) * 8), 2, C_RUST);
+        } else {
+            // the S3 is 2.4GHz-only: the usual reason a phone hotspot is missing
+            textCentre("phone hotspot? set it to 2.4GHz", 120, 76, C_UMBER);
+        }
     }
 
     const int rows = 7, rh = 12, y0 = 22;
@@ -131,7 +143,20 @@ void draw(uint32_t now) {
         textRight(ch, 236, y, C_DIM);
         if (a.auth == 0) text("o", 205, y, C_DIM);
     }
-    footer("ent join  f forget  r rescan");
+
+    // captive-portal status takes over the hint line once a link is up
+    const char *foot = "ent join  f forget  r rescan";
+    if (ws == net::WST_ONLINE) {
+        if (ps == net::PORTAL_CAPTIVE) {
+            foot = "captive portal!  p: accept";
+            std::string u = net::captiveURL();
+            if (!u.empty()) textCentre(u.c_str(), 120, hal::H - 22, C_EMBER);
+        } else if (ps == net::PORTAL_CHECKING) foot = "checking the aether...";
+        else if (ps == net::PORTAL_JOINING) foot = "opening the portal...";
+        else if (ps == net::PORTAL_ONLINE) foot = "the aether is open";
+        else if (ps == net::PORTAL_FAILED) foot = "walled off  p: retry";
+    }
+    footer(foot);
 }
 } // namespace
 

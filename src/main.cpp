@@ -24,7 +24,7 @@ Mode mode = SPLASH;
 int sel = 0;
 float slide = 0; // animated carousel position, eases toward sel
 const Rite *active = nullptr;
-uint32_t t0 = 0, volShownAt = 0, escArmedAt = 0;
+uint32_t t0 = 0, volShownAt = 0, escArmedAt = 0, selAt = 0;
 
 struct Mote {
     float x, y, vy;
@@ -112,20 +112,26 @@ void drawSplash(uint32_t now) {
 }
 
 /* ------------------------------------------------------------ menu */
-void card(const Rite &r, int x, int y, int w, int h, bool centre) {
+void card(const Rite &r, int x, int y, int w, int h, bool centre, float reveal = 0.f) {
     Canvas &cv = hal::canvas();
+    int cx = x + w / 2;
     cv.fillRect(x, y, w, h, centre ? C_DUSK : C_ASH);
     frame(x, y, w, h, centre ? C_RUST : C_CLOT, centre ? C_EMBER : C_UMBER);
     if (centre) {
-        textCentre("- rite -", x + w / 2, y + 5, C_DIM);
-        const DaedricFont &f = glyphWidth(DAEDRIC_L, r.glyph) <= w - 10 ? DAEDRIC_L : DAEDRIC_M;
-        glyphsCentre(f, r.glyph, x + w / 2 + 1, y + 18 + (f.h == DAEDRIC_L.h ? 0 : 5), C_CLOT);
-        glyphsCentre(f, r.glyph, x + w / 2, y + 17 + (f.h == DAEDRIC_L.h ? 0 : 5), C_EMBER);
-        int lw = strlen(r.name) * 12;
-        textCentre(r.name, x + w / 2, y + h - 22, C_GLOW, lw <= w - 6 ? 2 : 1);
+        // the tag itself resolves from runes to english as you land on it
+        textCentre("- rite -", cx, y + 5, blend(C_DIM, C_DUSK, (uint8_t)(smoothstep(0.4f, 1.f, reveal) * 255)));
+        // the rite's own name: Daedric runes that dissolve into latin letters
+        const DaedricFont &f = glyphWidth(DAEDRIC_L, r.glyph) <= w - 12 ? DAEDRIC_L : DAEDRIC_M;
+        int latSize = (int)strlen(r.glyph) * 12 <= w - 8 ? 2 : 1;
+        int yRune = y + 20 + (f.h == DAEDRIC_L.h ? 0 : 4);
+        int yLat = yRune + (f.h - 8 * latSize) / 2;
+        wordDissolve(f, r.glyph, cx, yRune, yLat, reveal, C_EMBER, C_GLOW, C_DUSK, latSize);
+        // the plain-language subtitle (e.g. "wifi") fades in with the english
+        float sub = smoothstep(0.55f, 1.f, reveal);
+        if (sub > 0.02f) textCentre(r.name, cx, y + h - 16, blend(C_BONE, C_DUSK, (uint8_t)(sub * 255)));
     } else {
-        glyphsCentre(DAEDRIC_S, r.glyph, x + w / 2, y + 16, C_BLOOD);
-        textCentre(r.name, x + w / 2, y + h - 14, C_DIM);
+        // unselected: the word stays in Daedric runes only
+        glyphsCentre(DAEDRIC_S, r.glyph, cx, y + h / 2 - DAEDRIC_S.h / 2, C_BLOOD);
     }
 }
 
@@ -151,7 +157,8 @@ void drawMenu(uint32_t now) {
     {
         int i = ((int)roundf(slide) % N_RITES + N_RITES) % N_RITES;
         float off = roundf(slide) - slide;
-        card(*RITES[i], (int)(hal::W / 2 + off * 86) - 52, 23, 104, 86, true);
+        float reveal = smoothstep(130.f, 520.f, (float)(now - selAt));
+        card(*RITES[i], (int)(hal::W / 2 + off * 86) - 52, 23, 104, 86, true, reveal);
     }
     // arrows
     uint16_t ac = ((now / 400) & 1) ? C_RUST : C_BLOOD;
@@ -190,6 +197,7 @@ void close() {
     uisfx::trigger(uisfx::BACK);
     active = nullptr;
     mode = MENU;
+    selAt = hal::ms();
 }
 
 bool volumeKey(const hal::Key &k) {
@@ -217,6 +225,7 @@ void grimLoop() {
     while (hal::pollKey(k)) {
         if (mode == SPLASH) {
             mode = MENU;
+            selAt = hal::ms();
             uisfx::trigger(uisfx::SELECT);
             continue;
         }
@@ -229,8 +238,8 @@ void grimLoop() {
                 continue;
             }
             escArmedAt = 0;
-            if (k.nav == hal::N_LEFT || k.nav == hal::N_UP) { sel = (sel + N_RITES - 1) % N_RITES; uisfx::trigger(uisfx::MOVE); }
-            else if (k.nav == hal::N_RIGHT || k.nav == hal::N_DOWN) { sel = (sel + 1) % N_RITES; uisfx::trigger(uisfx::MOVE); }
+            if (k.nav == hal::N_LEFT || k.nav == hal::N_UP) { sel = (sel + N_RITES - 1) % N_RITES; selAt = hal::ms(); uisfx::trigger(uisfx::MOVE); }
+            else if (k.nav == hal::N_RIGHT || k.nav == hal::N_DOWN) { sel = (sel + 1) % N_RITES; selAt = hal::ms(); uisfx::trigger(uisfx::MOVE); }
             else if (k.nav == hal::N_ENTER) open(sel);
             else if (k.ch >= '1' && k.ch < '1' + N_RITES) open(sel = k.ch - '1');
             // keep the carousel from spinning the long way round on wrap
@@ -253,7 +262,7 @@ void grimLoop() {
     uint32_t now = hal::ms();
     if (mode == SPLASH) {
         drawSplash(now);
-        if (now - t0 > 2600) mode = MENU;
+        if (now - t0 > 2600) { mode = MENU; selAt = now; }
     } else if (mode == MENU) {
         drawMenu(now);
     } else {

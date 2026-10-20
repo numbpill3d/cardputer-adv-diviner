@@ -20,6 +20,7 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 
+#include <algorithm>
 #include <vector>
 
 namespace net {
@@ -125,16 +126,40 @@ WifiState wifiState() {
     default: return WST_CONNECTING;
     }
 }
+// A phone hotspot often beacons slowly and only appears in some scans, so a
+// single pass misses it. We keep a cache keyed by BSSID, refresh it on every
+// completed scan, and age entries out after ~30s — so a network that shows up
+// in any recent scan stays in the list instead of flickering in and out.
+namespace {
+struct Seen { AP ap; uint32_t at; };
+std::vector<Seen> apCache;
+
+std::vector<AP> cacheList() {
+    uint32_t now = millis();
+    std::vector<AP> v;
+    for (auto &s : apCache)
+        if (now - s.at < 30000) v.push_back(s.ap);
+    std::sort(v.begin(), v.end(), [](const AP &a, const AP &b) { return a.rssi > b.rssi; });
+    return v;
+}
+} // namespace
+
 int wifiScan(std::vector<AP> &out) {
     wifiBegin();
     int16_t n = WiFi.scanComplete();
     if (n == WIFI_SCAN_FAILED || !scanStarted) {
-        WiFi.scanNetworks(true, true); // async, include hidden
+        // async, include hidden, ACTIVE scan, 300ms/channel dwell: a longer
+        // dwell and probe requests catch phones/APs that beacon infrequently.
+        WiFi.scanNetworks(true, true, false, 300);
         scanStarted = true;
-        return -1;
+        out = cacheList();
+        return out.empty() ? -1 : (int)out.size();
     }
-    if (n == WIFI_SCAN_RUNNING) return -1;
-    out.clear();
+    if (n == WIFI_SCAN_RUNNING) {
+        out = cacheList();
+        return out.empty() ? -1 : (int)out.size();
+    }
+    uint32_t now = millis();
     int known = credCount();
     for (int i = 0; i < n; ++i) {
         AP a;
@@ -146,11 +171,15 @@ int wifiScan(std::vector<AP> &out) {
         a.known = false;
         for (int k = 0; k < known; ++k)
             if (credSSID(k) == a.ssid.c_str()) a.known = true;
-        out.push_back(a);
+        bool merged = false;
+        for (auto &s : apCache)
+            if (memcmp(s.ap.bssid, a.bssid, 6) == 0) { s.ap = a; s.at = now; merged = true; break; }
+        if (!merged) apCache.push_back({a, now});
     }
     WiFi.scanDelete();
     scanStarted = false;
-    return out.size();
+    out = cacheList();
+    return (int)out.size();
 }
 void wifiConnect(const char *ssid, const char *pass) {
     wifiBegin();
@@ -679,6 +708,123 @@ std::vector<ProbeLine> probeResults() {
         xSemaphoreGive(probeLock);
     }
     return r;
+}
+
+// ---- captive portal ------------------------------------------------------
+namespace {
+TaskHandle_t capTask = nullptr;
+volatile PortalState capState = PORTAL_NONE;
+String capURL;
+SemaphoreHandle_t capLock = nullptr;
+bool capDoAccept = false;
+
+// Plain-HTTP GET; returns the status code, captures a Location header and
+// whether any body followed the headers. Breaks early once it knows enough.
+int httpHead(const String &host, uint16_t port, const String &path, String &loc, bool &hasBody) {
+    WiFiClient c;
+    loc = "";
+    hasBody = false;
+    if (!c.connect(host.c_str(), port, 4000)) return -1;
+    c.print("GET " + path + " HTTP/1.1\r\nHost: " + host +
+            "\r\nUser-Agent: grimoire\r\nConnection: close\r\n\r\n");
+    uint32_t t0 = millis();
+    int code = 0;
+    bool inHeaders = true;
+    while (c.connected() && millis() - t0 < 5000) {
+        if (!c.available()) { vTaskDelay(1); continue; }
+        String line = c.readStringUntil('\n');
+        if (inHeaders) {
+            if (code == 0 && line.startsWith("HTTP/")) {
+                int sp = line.indexOf(' ');
+                code = line.substring(sp + 1, sp + 4).toInt();
+            }
+            String lo = line;
+            lo.toLowerCase();
+            if (lo.startsWith("location:")) { loc = line.substring(9); loc.trim(); }
+            if (line == "\r" || line.length() == 0) inHeaders = false;
+        } else {
+            if (line.length() && line != "\r") { hasBody = true; break; }
+        }
+    }
+    c.stop();
+    return code;
+}
+
+bool parseHttpURL(const String &url, String &host, uint16_t &port, String &path) {
+    String u = url;
+    port = 80;
+    if (u.startsWith("http://")) u = u.substring(7);
+    else if (u.startsWith("https://")) return false; // portal over TLS: can't drive it here
+    int slash = u.indexOf('/');
+    String hp = slash < 0 ? u : u.substring(0, slash);
+    path = slash < 0 ? "/" : u.substring(slash);
+    int colon = hp.indexOf(':');
+    if (colon < 0) host = hp;
+    else { host = hp.substring(0, colon); port = hp.substring(colon + 1).toInt(); }
+    return host.length() > 0;
+}
+
+// 1 = real internet, 0 = captive (walled garden), -1 = failed.
+int probe204() {
+    String loc;
+    bool body;
+    int code = httpHead("connectivitycheck.gstatic.com", 80, "/generate_204", loc, body);
+    if (code == 204) return 1;
+    if ((code >= 300 && code < 400) || code == 200) {
+        if (loc.length()) { xSemaphoreTake(capLock, portMAX_DELAY); capURL = loc; xSemaphoreGive(capLock); }
+        return 0;
+    }
+    // couldn't reach the Google endpoint; try Apple's as a second opinion
+    code = httpHead("captive.apple.com", 80, "/hotspot-detect.html", loc, body);
+    if (code == 200 && !body) return 1;
+    if (code == 200 || (code >= 300 && code < 400)) {
+        if (loc.length()) { xSemaphoreTake(capLock, portMAX_DELAY); capURL = loc; xSemaphoreGive(capLock); }
+        return 0;
+    }
+    return -1;
+}
+
+void capWorker(void *) {
+    if (capDoAccept) {
+        String url;
+        xSemaphoreTake(capLock, portMAX_DELAY);
+        url = capURL;
+        xSemaphoreGive(capLock);
+        if (url.length()) {
+            String h, pa;
+            uint16_t po;
+            if (parseHttpURL(url, h, po, pa)) {
+                String loc;
+                bool b;
+                httpHead(h, po, pa, loc, b);                 // knock once
+                if (loc.length() && parseHttpURL(loc, h, po, pa)) httpHead(h, po, pa, loc, b); // follow one hop
+            }
+        }
+        capDoAccept = false;
+    }
+    int r = probe204();
+    capState = r == 1 ? PORTAL_ONLINE : r == 0 ? PORTAL_CAPTIVE : PORTAL_FAILED;
+    capTask = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void capStart(bool accept) {
+    if (capTask) return;
+    if (!capLock) capLock = xSemaphoreCreateMutex();
+    if (WiFi.status() != WL_CONNECTED) { capState = PORTAL_FAILED; return; }
+    capDoAccept = accept;
+    capState = accept ? PORTAL_JOINING : PORTAL_CHECKING;
+    xTaskCreatePinnedToCore(capWorker, "grim-cap", 6144, nullptr, 3, &capTask, 1);
+}
+} // namespace
+
+void captiveCheck() { capStart(false); }
+void captiveAccept() { capStart(true); }
+PortalState captiveState() { return capState; }
+std::string captiveURL() {
+    std::string s;
+    if (capLock) { xSemaphoreTake(capLock, portMAX_DELAY); s = capURL.c_str(); xSemaphoreGive(capLock); }
+    return s;
 }
 
 } // namespace net

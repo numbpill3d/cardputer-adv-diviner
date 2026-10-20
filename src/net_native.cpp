@@ -79,6 +79,26 @@ std::string wifiSSID() { return ssid; }
 int wifiRSSI() { return -42 - (int)(now() / 400 % 12); }
 std::vector<std::string> wifiSaved() { return saved; }
 
+// ---- captive portal (fake) ----
+namespace {
+PortalState capState = PORTAL_NONE;
+uint32_t capAt = 0;
+std::string capUrl;
+bool fakeCaptive() { return getenv("GRIM_FAKE_CAPTIVE") || ssid.find("COPLAND") != std::string::npos; }
+} // namespace
+void captiveCheck() {
+    capState = PORTAL_CHECKING;
+    capAt = now();
+    capUrl = fakeCaptive() ? "http://portal.wired/login" : "";
+}
+void captiveAccept() { capState = PORTAL_JOINING; capAt = now(); }
+PortalState captiveState() {
+    if ((capState == PORTAL_CHECKING || capState == PORTAL_JOINING) && now() - capAt > 900)
+        capState = (capState == PORTAL_CHECKING && fakeCaptive()) ? PORTAL_CAPTIVE : PORTAL_ONLINE;
+    return capState;
+}
+std::string captiveURL() { return capUrl; }
+
 // ---- sniffer ----
 namespace {
 int snifCh = 1;

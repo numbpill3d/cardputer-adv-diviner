@@ -10,6 +10,11 @@ blood-and-ember aesthetic, with a hand-rasterised Daedric glyph font.
   <img src="docs/previews/menu.png" width="47%" alt="carousel menu">
 </p>
 
+<p align="center">
+  <img src="docs/previews/menu-reveal.gif" width="60%" alt="menu: Daedric runes dissolving into English on select"><br>
+  <em>Every rite rides the carousel in Daedric script; the one you land on dissolves into plain words.</em>
+</p>
+
 > **For authorized use only.** The networked and IR rites inspect and test
 > networks and devices **you own or are explicitly permitted to test**. See
 > [NOTICE.md](NOTICE.md). This project deliberately does **not** implement
@@ -35,7 +40,7 @@ blood-and-ember aesthetic, with a hand-rasterised Daedric glyph font.
 | | | |
 |---|---|---|
 | ![link](docs/previews/link.png) | ![scry](docs/previews/scry.png) | ![listen](docs/previews/listen.png) |
-| **link** — join Wi-Fi; remembers networks | **scry** — Wi-Fi networks as a constellation | **listen** — receive-only channel monitor you can hear |
+| **link** — join Wi-Fi (remembers networks); **captive-portal detect + click-through accept**; merges scans so flaky hotspots stick<br>*(2.4GHz only — set phone hotspots to 2.4GHz)* | **scry** — Wi-Fi networks as a constellation | **listen** — receive-only channel monitor you can hear |
 | ![kin](docs/previews/kin.png) | ![net](docs/previews/net.png) | ![gemini](docs/previews/gemini.png) |
 | **kin** — Bluetooth devices as drifting familiars | **net** — map the LAN: hosts, names, open ports | **gemini** — gemtext browser over TLS (+ posting) |
 | ![banish](docs/previews/banish.png) | | |

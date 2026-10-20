@@ -37,6 +37,19 @@ int wifiRSSI();
 // Saved networks (SSIDs only; passwords live in NVS, never returned).
 std::vector<std::string> wifiSaved();
 
+// ---- captive portal ------------------------------------------------------
+// After a link is up (WST_ONLINE) the network may still be a walled garden
+// (hotel/cafe) that intercepts HTTP until you accept its portal. captiveCheck
+// probes a known 204 endpoint: PORTAL_ONLINE = real internet, PORTAL_CAPTIVE =
+// a portal is in the way (captiveURL() is its login page, when we can see it).
+// captiveAccept() is a best-effort GET of that portal (works for the simple
+// "click to connect" kind; anything needing a real form/login won't).
+enum PortalState { PORTAL_NONE, PORTAL_CHECKING, PORTAL_ONLINE, PORTAL_CAPTIVE, PORTAL_JOINING, PORTAL_FAILED };
+void captiveCheck();
+void captiveAccept();
+PortalState captiveState();
+std::string captiveURL();
+
 // ---- channel traffic (listen) -------------------------------------------
 // Puts the radio in receive-only promiscuous mode and counts frames per
 // 2.4GHz channel. counts[0..13] are packets since the last poll; mgmt/data
