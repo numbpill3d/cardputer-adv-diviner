@@ -1,42 +1,88 @@
-# Daedric Grimoire
+# cardputer-adv-diviner
 
-A companion app for the [Daedric Launcher](../daedric-launcher) on the
-M5Stack **Cardputer ADV**. It has six "rites", all in the same blood and
-ember skin as the launcher, with the Daedric glyph font:
+A Daedric / Lain-core skinned companion firmware for the **M5Stack Cardputer ADV**,
+booted by the [Launcher](https://github.com/bmorcelli/Launcher). Sixteen "rites"
+across four domains — **sound**, **sight**, **the wired**, and **wards** — in one
+blood-and-ember aesthetic, with a hand-rasterised Daedric glyph font.
 
-| # | rite | what it is | keys |
-|---|------|-----------|------|
-| 1 | **drone** | generative drone box: 5 drifting voices, resonant low-pass, wind, bells, dark delay | `a w s e d f t g y h u j k` root · `1-6` mode · `;` `.` light · `,` `/` drift · `z` `x` octave · `n` wind · `b` bells · `space` hold · `r` reseed |
-| 2 | **seq** | 16-step groovebox: kick, snare, hat, acid bass (accent and slide) | arrows move · `enter` step · `space` play · `[` `]` bpm · `'` swing · `q` euclid fill · `r` roll bass · `a-k` note · `v` accent · `l` slide · `m` mute · `c` clear |
-| 3 | **beat** | bytebeat livecoder: type a C expression in `t`, `enter` casts it | `tab` preset · `fn+,` `fn+/` cursor · `fn+;` `fn+.` rate 8k–22k · `fn+del` clear · `fn+r` reset t |
-| 4 | **wired** | ASCII 3D: torus, navi sphere, wireframe solids, tunnel; a quiet data-hum | `1-4` form · `;` `.` tilt · `,` `/` spin · `s` sound · `m` mono · `space` pause |
-| 5 | **visions** | plasma, Oblivion gate, ash-fire, Daedric glyph rain, heptagram kaleidoscope | `1-5` vision · `,` `/` speed · `s` sound · `space` pause |
-| 6 | **oracle** | cast three runes (past, present, wired); bell chimes; typed utterances | `enter` cast · `space` speak |
+<p align="center">
+  <img src="docs/previews/splash.png" width="47%" alt="splash">
+  <img src="docs/previews/menu.png" width="47%" alt="carousel menu">
+</p>
 
-Everywhere: the top button (G0) or `` ` `` (esc) leaves a rite. `fn` plus `-` or `=` sets the volume
-(in the menu, `-` and `=` work alone). Pressing it twice in the menu
-restarts into the Launcher.
+> **For authorized use only.** The networked and IR rites inspect and test
+> networks and devices **you own or are explicitly permitted to test**. See
+> [NOTICE.md](NOTICE.md). This project deliberately does **not** implement
+> denial-of-service or phishing attacks.
+
+---
+
+## Rites
+
+### ◈ sound
+| | | |
+|---|---|---|
+| ![drone](docs/previews/drone.png) | ![seq](docs/previews/seq.png) | ![beat](docs/previews/beat.png) |
+| **drone** — generative drone box: 5 drifting voices, resonant LP, wind, bells, dark delay | **seq** — groovebox: kick/snare/hat/acid, euclid fills, **4 pattern banks + song mode + save/load** | **beat** — bytebeat livecoder: type a C expression in `t`, hear it instantly |
+
+### ◈ sight
+| | | |
+|---|---|---|
+| ![wired](docs/previews/wired-navi.png) | ![visions](docs/previews/vis-plasma.png) | ![oracle](docs/previews/oracle.png) |
+| **wired** — ASCII 3D: torus, navi sphere, wireframe solids, tunnel | **visions** — plasma, Oblivion gate, ash-fire, Daedric glyph-rain, heptagram kaleidoscope | **oracle** — cast three runes with bell chimes |
+
+### ◈ the wired
+| | | |
+|---|---|---|
+| ![link](docs/previews/link.png) | ![scry](docs/previews/scry.png) | ![listen](docs/previews/listen.png) |
+| **link** — join Wi-Fi; remembers networks | **scry** — Wi-Fi networks as a constellation | **listen** — receive-only channel monitor you can hear |
+| ![kin](docs/previews/kin.png) | ![net](docs/previews/net.png) | ![gemini](docs/previews/gemini.png) |
+| **kin** — Bluetooth devices as drifting familiars | **net** — map the LAN: hosts, names, open ports | **gemini** — gemtext browser over TLS (+ posting) |
+| ![banish](docs/previews/banish.png) | | |
+| **banish** — IR remote: TV power/volume across 5 protocols | | |
+
+### ◈ wards
+| | | |
+|---|---|---|
+| ![sentinel](docs/previews/sentinel.png) | ![pulse](docs/previews/pulse.png) | ![probe](docs/previews/probe.png) |
+| **sentinel** — learns a baseline, then alarms on unknown devices; flags likely **drones** | **pulse** — Wi-Fi CSI motion / presence radar (experimental) | **probe** — active HTTP recon + default-credential check on an authorized host |
+
+Everywhere: the top button (G0) or `` ` `` leaves a rite; twice in the menu returns
+to the Launcher. `Fn` + `-`/`=` sets the volume. Menu and list navigation have
+Kingdom-Hearts-style sound feedback.
+
+---
 
 ## Build
 
 ```sh
-pio run -e cardputer      # .pio/build/cardputer/firmware.bin -> copy to SD, install from the Launcher
+pio run -e cardputer      # .pio/build/cardputer/firmware.bin -> install via the Launcher
 pio run -e native         # desktop simulator (SDL2), 240x135 at 3x
-.pio/build/native/program # laptop keys: arrows = fn+;./  alt = fn  esc = `
-tools/shots.sh shots      # headless screenshots and WAVs of every rite
+.pio/build/native/program # laptop keys: arrows = Fn+;./  Alt = Fn  Esc = `
+tools/shots.sh shots      # headless screenshots + WAVs of every rite
 ```
 
-The simulator writes audio to SDL, or to a file with `GRIM_WAV=out.wav`.
-`GRIM_SCRIPT` drives it headless (see `src/hal_native.cpp`).
+The simulator plays audio through SDL, or to a file with `GRIM_WAV=out.wav`;
+`GRIM_SCRIPT` drives it headless (see `src/hal_native.cpp`). A prebuilt device
+image is in [`dist/`](dist/).
+
+### Installing on the Cardputer
+Copy `firmware.bin` to the SD card and install it from the Launcher, or push it
+over USB serial while the Launcher is running (the Launcher grows the app
+partition to fit). The ADV is a full wipe from the factory firmware — back up
+first with `esptool read-flash 0 0x800000 backup.bin`.
 
 ## Layout
+- `src/hal.*` — the hardware seam. `hal_device.cpp`: M5Cardputer, ES8311 codec,
+  TCA8418 keyboard, 24 kHz audio with a UI-sfx overlay. `hal_native.cpp`: LovyanGFX
+  SDL panel + SDL/WAV audio.
+- `src/net.*` — Wi-Fi, BLE, promiscuous sniffing, LAN sweep, CSI, Gemini (TLS).
+  `net_device.cpp` is real; `net_native.cpp` returns canned data for the sim.
+- `src/theme.*`, `src/daedric_glyphs.h`, `src/dsp.h`, `src/uisfx.h` — skin, font,
+  DSP kit, UI sounds.
+- `src/apps/*.cpp` — one file per rite (`src/rite.h`).
 
-- `src/hal.h`: the seam between the code and the hardware.
-  - `hal_device.cpp` covers the Cardputer: M5Cardputer, the ES8311 codec, the TCA8418 keyboard, and a 3-buffer `playRaw` audio task at 24 kHz.
-  - `hal_native.cpp` covers the desktop: the LovyanGFX SDL panel, SDL audio or a WAV file.
-- `src/theme.*`: palette, Daedric glyph text, studded frames, header and footer.
-- `src/dsp.h`: table oscillators, noise, decays, SVF filter, delay, scope ring.
-- `src/apps/*.cpp`: one file per rite (see `src/rite.h`).
-
-Font: OMW Ayembedt (SIL OFL 1.1), `tools/OFL.txt`. The glyph tables are
-generated by `../daedric-launcher/tools/daedric/gen_glyphs.py`.
+## Credits & license
+MIT — see [LICENSE](LICENSE). Daedric font: **OMW Ayembedt** (SIL OFL 1.1,
+`tools/OFL.txt`). Built on M5Cardputer / M5Unified / M5GFX and (for the sim)
+LovyanGFX.
