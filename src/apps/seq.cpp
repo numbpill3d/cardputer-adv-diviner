@@ -10,6 +10,9 @@
 #include "../theme.h"
 #include <stdio.h>
 #include <string.h>
+#ifdef GRIM_DEVICE
+#include <Preferences.h> // must be at global scope, NOT inside the anon namespace below
+#endif
 
 using namespace theme;
 
@@ -168,7 +171,6 @@ void rollBass() {
 
 
 #ifdef GRIM_DEVICE
-#include <Preferences.h>
 void saveSong() {
     Preferences pr;
     if (!pr.begin("grimseq", false)) return;
