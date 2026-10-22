@@ -25,6 +25,7 @@ struct State {
     uint32_t lastScan = 0;
     bool scanning = true;
     bool capAsked = false; // ran the captive-portal check for this link yet
+    bool capTried = false; // user pressed 'p' to accept at least once
 } *S = nullptr;
 
 void enter() {
@@ -48,7 +49,10 @@ bool onKey(const hal::Key &k) {
         return true;
     }
     if (k.ch == 'r') { net::wifiScan(s.aps); s.scanning = true; return true; }
-    if (k.ch == 'p') { net::captiveAccept(); return true; } // accept a captive portal
+    if (k.ch == 'p') { // accept a captive portal (only meaningful once linked)
+        if (net::wifiState() == net::WST_ONLINE) { net::captiveAccept(); s.capTried = true; }
+        return true;
+    }
 
     if (s.aps.empty()) return true;
     if (k.nav == hal::N_UP) s.sel = (s.sel + s.aps.size() - 1) % s.aps.size();
@@ -93,7 +97,7 @@ void draw(uint32_t now) {
 
     // once a link is up, probe for a captive portal (walled garden) once
     if (ws == net::WST_ONLINE) { if (!s.capAsked) { net::captiveCheck(); s.capAsked = true; } }
-    else s.capAsked = false;
+    else { s.capAsked = false; s.capTried = false; }
     net::PortalState ps = net::captiveState();
 
     if (s.phase == ASKPASS) {
@@ -148,9 +152,12 @@ void draw(uint32_t now) {
     const char *foot = "ent join  f forget  r rescan";
     if (ws == net::WST_ONLINE) {
         if (ps == net::PORTAL_CAPTIVE) {
-            foot = "captive portal!  p: accept";
+            // once p has been tried and we're still walled in, the portal wants
+            // a real browser login (form/JS) the device can't drive — say so
+            foot = s.capTried ? "needs a browser login" : "captive portal!  p: accept";
             std::string u = net::captiveURL();
             if (!u.empty()) textCentre(u.c_str(), 120, hal::H - 22, C_EMBER);
+            else if (s.capTried) textCentre("open it on your phone", 120, hal::H - 22, C_DIM);
         } else if (ps == net::PORTAL_CHECKING) foot = "checking the aether...";
         else if (ps == net::PORTAL_JOINING) foot = "opening the portal...";
         else if (ps == net::PORTAL_ONLINE) foot = "the aether is open";

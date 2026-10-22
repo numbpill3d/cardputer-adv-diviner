@@ -86,7 +86,12 @@ void credForget(const char *ssid) {
 void radioStop() {
     if (radio == R_SNIFF) esp_wifi_set_promiscuous(false);
     if (radio == R_BLE) {
-        BLEDevice::deinit(true);
+        // deinit(false): tear down the stack but KEEP the controller memory.
+        // deinit(true) calls esp_bt_controller_mem_release(), which frees that
+        // memory for good — the next BLEDevice::init() then aborts. Re-entering
+        // a BLE rite (kin/sentinel) would crash the device. (false) lets init
+        // succeed again.
+        BLEDevice::deinit(false);
     }
     if (radio == R_WIFI || radio == R_SNIFF) {
         WiFi.disconnect(true, false);
@@ -247,6 +252,7 @@ namespace {
 std::vector<BleDev> bleFound;
 bool bleScanning = false;
 BLEScan *bleScanner = nullptr;
+SemaphoreHandle_t bleLock = nullptr; // onResult runs on the Bluedroid task
 
 class BleCb : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice d) override {
@@ -261,19 +267,32 @@ class BleCb : public BLEAdvertisedDeviceCallbacks {
         }
         dev.connectable = true;
         dev.lastSeen = millis();
+        // Guard bleFound: this fires on the BLE host task while the main loop
+        // reads/clears the same vector. A push_back reallocation under an
+        // iterating reader corrupts the heap.
+        if (!bleLock) return;
+        xSemaphoreTake(bleLock, portMAX_DELAY);
+        bool merged = false;
         for (auto &e : bleFound)
-            if (e.addr == dev.addr) {
-                e = dev;
-                return;
-            }
-        bleFound.push_back(dev);
+            if (e.addr == dev.addr) { e = dev; merged = true; break; }
+        if (!merged && bleFound.size() < 256) bleFound.push_back(dev);
+        xSemaphoreGive(bleLock);
     }
 };
 BleCb bleCb;
 } // namespace
 
 void bleBegin() {
+    if (!bleLock) bleLock = xSemaphoreCreateMutex();
+    // Already on BLE (e.g. kin -> sentinel, or re-entering the rite): keep the
+    // live stack instead of tearing it down and re-initialising, which both
+    // wastes the ~4s warm-up and risked the deinit/init crash.
+    if (radio == R_BLE && bleScanner) return;
     radioStop();
+    xSemaphoreTake(bleLock, portMAX_DELAY);
+    bleFound.clear();
+    bleScanning = false;
+    xSemaphoreGive(bleLock);
     BLEDevice::init("");
     bleScanner = BLEDevice::getScan();
     bleScanner->setAdvertisedDeviceCallbacks(&bleCb, true);
@@ -283,17 +302,24 @@ void bleBegin() {
     radio = R_BLE;
 }
 int bleScan(std::vector<BleDev> &out) {
+    if (!bleScanner) return -1;
     if (!bleScanning) {
+        xSemaphoreTake(bleLock, portMAX_DELAY);
         bleFound.clear();
+        xSemaphoreGive(bleLock);
         bleScanner->start(4, nullptr, false); // non-blocking, 4s
         bleScanning = true;
         return -1;
     }
-    // prune devices not seen for 12s, hand back the live set
-    out.clear();
     uint32_t now = millis();
-    for (auto &d : bleFound)
-        if (now - d.lastSeen < 12000) out.push_back(d);
+    // hand back the live set and drop anything not seen for 12s, under the lock
+    out.clear();
+    xSemaphoreTake(bleLock, portMAX_DELAY);
+    for (auto it = bleFound.begin(); it != bleFound.end();) {
+        if (now - it->lastSeen >= 12000) it = bleFound.erase(it);
+        else { out.push_back(*it); ++it; }
+    }
+    xSemaphoreGive(bleLock);
     // relaunch when the window ends
     static uint32_t cycle = 0;
     if (now - cycle > 4500) {
@@ -784,22 +810,31 @@ int probe204() {
     return -1;
 }
 
+// GET a plain-HTTP URL and follow one redirect hop. Best-effort click-through
+// for a simple walled garden; it cannot drive a portal that needs a form POST
+// or runs over JS/HTTPS.
+void knock(const String &url) {
+    String h, pa;
+    uint16_t po;
+    if (!parseHttpURL(url, h, po, pa)) return;
+    String loc;
+    bool b;
+    httpHead(h, po, pa, loc, b);
+    if (loc.length() && parseHttpURL(loc, h, po, pa)) httpHead(h, po, pa, loc, b);
+}
+
 void capWorker(void *) {
     if (capDoAccept) {
         String url;
         xSemaphoreTake(capLock, portMAX_DELAY);
         url = capURL;
         xSemaphoreGive(capLock);
-        if (url.length()) {
-            String h, pa;
-            uint16_t po;
-            if (parseHttpURL(url, h, po, pa)) {
-                String loc;
-                bool b;
-                httpHead(h, po, pa, loc, b);                 // knock once
-                if (loc.length() && parseHttpURL(loc, h, po, pa)) httpHead(h, po, pa, loc, b); // follow one hop
-            }
-        }
+        if (url.length()) knock(url); // the login URL the portal pointed us at
+        // Fall back to the gateway root: most walled gardens intercept any
+        // plain-HTTP GET to the router and serve the login page there, even
+        // when the probe got no Location header back (so capURL was empty).
+        IPAddress gw = WiFi.gatewayIP();
+        if ((uint32_t)gw) knock("http://" + gw.toString() + "/");
         capDoAccept = false;
     }
     int r = probe204();
