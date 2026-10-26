@@ -192,8 +192,11 @@ void open(int i) {
     if (active->enter) active->enter();
 }
 void close() {
-    if (active && active->leave) active->leave();
+    // Silence the audio worker before a rite tears down its state/radio. This
+    // makes cleanup ordering explicit and prevents one final callback from
+    // touching resources while a leave hook is releasing them.
     hal::setAudio(nullptr);
+    if (active && active->leave) active->leave();
     uisfx::trigger(uisfx::BACK);
     active = nullptr;
     mode = MENU;

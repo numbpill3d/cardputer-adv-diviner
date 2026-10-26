@@ -10,6 +10,9 @@
 #include "../theme.h"
 #include <stdio.h>
 #include <string.h>
+#ifdef GRIM_DEVICE
+#include <esp_system.h>
+#endif
 
 using namespace theme;
 
@@ -42,6 +45,7 @@ struct State {
     float bright = 0.45f;   // 0..1
     float drift = 0.5f;     // 0..1
     bool wind = true, bells = true, freeze = false;
+    bool safeMode = false;
     Voice v[NV];
     dsp::SVF filt, windF, bellF;
     dsp::Osc lfo, lfo2;
@@ -49,7 +53,10 @@ struct State {
     dsp::Osc bell;
     dsp::Decay bellEnv;
     float bellHz = 880;
-    dsp::Delay<9000> dl;
+    // Keep the feedback buffer below 20 KB on the PSRAM-less Cardputer. The
+    // old 9000-sample delay used 36 KB by itself and could exhaust/fragment
+    // heap after visiting radio-heavy rites before opening DRONE.
+    dsp::Delay<4096> dl;
     float dlLp = 0;
     uint32_t ctrl = 0, nextMove = 0;
     float cutoffNow = 600;
@@ -128,7 +135,7 @@ void render(int16_t *out, int n) {
                 uint32_t gap = (uint32_t)((1.f - s.drift) * 9.f * hal::RATE) + hal::RATE / 2;
                 s.nextMove = s.ctrl + gap / 2 + s.rng.next() % gap;
             }
-            if (s.bells && s.rng.next() % (int)(hal::RATE / 64 * (3.5f - s.drift * 2.f)) == 0) {
+            if (s.bells && !s.safeMode && s.rng.next() % (int)(hal::RATE / 64 * (3.5f - s.drift * 2.f)) == 0) {
                 const Scale &sc = SCALES[s.scale];
                 int d = s.rng.next() % sc.n;
                 s.bellHz = dsp::midiHz(s.root + sc.steps[d] + 36 + (s.rng.next() & 1) * 12);
@@ -148,7 +155,7 @@ void render(int16_t *out, int n) {
         float bl = s.bell.sine() * s.bellEnv.tick();
         mix += bl * 0.18f;
         // dark delay: two taps, low-passed feedback
-        float wet = s.dl.tap(8999) * 0.55f + s.dl.tap(5311) * 0.3f;
+        float wet = s.safeMode ? 0.f : s.dl.tap(4095) * 0.55f + s.dl.tap(3072) * 0.3f;
         s.dlLp += (wet - s.dlLp) * 0.18f;
         s.dl.put(mix + s.dlLp * 0.62f);
         float o = mix * 0.8f + s.dlLp * 0.5f;
@@ -159,11 +166,25 @@ void render(int16_t *out, int n) {
 }
 
 void enter() {
-    if (!S) S = new State();
+    if (!S) {
+        S = new State();
+        if (!S) {
+            // Do not let an exhausted heap turn opening DRONE into a reboot.
+            hal::setAudio(nullptr);
+            return;
+        }
+    }
     S->lfo.hz(0.045f);
     S->lfo2.hz(0.013f);
     S->bellEnv.time(1.6f);
     S->bellF.set(880, 0.9f);
+#ifdef GRIM_DEVICE
+    // Radio rites can leave the PSRAM-less S3 heap fragmented. Safe mode keeps
+    // the core drone alive while dropping bells and feedback if headroom is low.
+    S->safeMode = esp_get_free_heap_size() < 60000;
+#else
+    S->safeMode = false;
+#endif
     seed();
     hal::setAudio(render);
 }
@@ -199,6 +220,7 @@ bool onKey(const hal::Key &k) {
     case 'x': if (s.root < 60) s.root += 12; for (int i = 0; i < NV; ++i) retune(i, false); break;
     case 'n': s.wind = !s.wind; break;
     case 'b': s.bells = !s.bells; break;
+    case 'q': s.safeMode = !s.safeMode; break;
     case ' ': s.freeze = !s.freeze; break;
     case 'r': seed(); break;
     }
@@ -264,12 +286,12 @@ void draw(uint32_t now) {
     };
     bar("light", s.bright, 58);
     bar("drift", s.drift, 70);
-    snprintf(b, sizeof b, "%s %s %s", s.wind ? "WIND" : "wind", s.bells ? "BELL" : "bell",
+    snprintf(b, sizeof b, "%s %s %s", s.safeMode ? "SAFE" : (s.wind ? "WIND" : "wind"), s.bells ? "BELL" : "bell",
              s.freeze ? "HOLD" : "flow");
-    text(b, px, 84, s.freeze ? C_GLOW : C_EMBER);
+    text(b, px, 84, s.safeMode ? C_GLOW : (s.freeze ? C_GLOW : C_EMBER));
     snprintf(b, sizeof b, "lp %4dhz", (int)s.cutoffNow);
     text(b, px, 96, C_DIM);
-    footer("a-k root 1-6 mode ;. ,/ spc hold");
+    footer("a-k root 1-6 mode ;. ,/ q safe spc hold");
 }
 } // namespace
 

@@ -33,6 +33,8 @@ struct Watch {
 
 struct State {
     std::vector<Watch> watch;
+    std::vector<net::AP> scanAps;      // reused each frame to keep capacity
+    std::vector<net::BleDev> scanDevs; // (was reallocated per draw)
     int sel = 0, top = 0;
     uint8_t mode = K_BLE; // which radio is up; switched only on a keypress
     bool learning = true, armed = true, mute = false;
@@ -216,12 +218,12 @@ void draw(uint32_t now) {
 
     // single radio, no auto-cycling: the active ward scans its own stack
     if (s.mode == K_WIFI) {
-        std::vector<net::AP> aps;
-        if (net::wifiScan(aps) >= 0) mergeWifi(aps, now);
+        if (net::wifiScan(s.scanAps) >= 0) mergeWifi(s.scanAps, now);
     } else {
-        std::vector<net::BleDev> devs;
-        net::bleScan(devs);
-        mergeBle(devs, now);
+        // only merge a fresh result set: bleScan returns -1 (and leaves
+        // scanDevs untouched) on its first call after a (re)start, so merging
+        // unconditionally would re-fold stale devices with last=now.
+        if (net::bleScan(s.scanDevs) >= 0) mergeBle(s.scanDevs, now);
     }
     if (s.learning && now > s.learnUntil) s.learning = false;
 
