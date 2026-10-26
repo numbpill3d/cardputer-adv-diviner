@@ -445,11 +445,21 @@ bool parseURL(const String &url, String &host, uint16_t &port, String &full) {
 void gemWorker(void *) {
     String url = gReq;
     for (int redirect = 0; redirect < 5; ++redirect) {
+        if (WiFi.status() != WL_CONNECTED) {
+            gStatus = 0;
+            xSemaphoreTake(gemLock, portMAX_DELAY);
+            gMeta = "Wi-Fi is not connected";
+            xSemaphoreGive(gemLock);
+            gState = GEM_ERROR;
+            break;
+        }
         String host, full;
         uint16_t port;
         if (!parseURL(url, host, port, full)) {
             gStatus = 0;
+            xSemaphoreTake(gemLock, portMAX_DELAY);
             gMeta = "bad url";
+            xSemaphoreGive(gemLock);
             gState = GEM_ERROR;
             break;
         }
@@ -459,13 +469,25 @@ void gemWorker(void *) {
         gProg = 0;
         if (!client.connect(host.c_str(), port)) {
             gStatus = 0;
+            xSemaphoreTake(gemLock, portMAX_DELAY);
             gMeta = "no route to " + host;
+            xSemaphoreGive(gemLock);
             gState = GEM_ERROR;
             break;
         }
         client.print(full + "\r\n");
         String header = client.readStringUntil('\n');
         header.trim();
+        if (header.length() == 0) {
+            gStatus = 0;
+            xSemaphoreTake(gemLock, portMAX_DELAY);
+            gMeta = "no Gemini response (TLS/port 1965 timeout)";
+            gURL = full;
+            xSemaphoreGive(gemLock);
+            gState = GEM_ERROR;
+            client.stop();
+            break;
+        }
         int sp = header.indexOf(' ');
         int code = (sp > 0 ? header.substring(0, sp) : header).toInt();
         String meta = sp > 0 ? header.substring(sp + 1) : "";
@@ -493,13 +515,20 @@ void gemWorker(void *) {
         String body;
         body.reserve(8192);
         uint32_t cap = 32 * 1024;
-        while (client.connected() && body.length() < cap) {
-            while (client.available()) {
-                body += (char)client.read();
-                gProg = body.length();
-                if (body.length() >= cap) break;
+        char chunk[512];
+        // Gemini signals end-of-body by closing the connection, so keep draining
+        // while bytes remain buffered even after connected() flips false —
+        // otherwise the final chunk is dropped and the page renders short.
+        while ((client.connected() || client.available() > 0) && body.length() < cap) {
+            int avail = client.available();
+            if (avail > 0) {
+                int want = avail > (int)sizeof chunk ? (int)sizeof chunk : avail;
+                if (body.length() + want > cap) want = cap - body.length();
+                int got = client.read((uint8_t *)chunk, want);
+                if (got > 0) { body.concat(chunk, got); gProg = body.length(); }
+            } else {
+                vTaskDelay(1);
             }
-            vTaskDelay(1);
         }
         client.stop();
         xSemaphoreTake(gemLock, portMAX_DELAY);

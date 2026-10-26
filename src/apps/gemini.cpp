@@ -37,6 +37,9 @@ struct State {
     TextEdit edit;
     std::string pendingBase; // base URL for resolving links / input target
     bool loadedOnce = false;
+    bool parsed = false; // parsed the current GEM_DONE body yet
+    // wrapped display rows, rebuilt only on parse (not per frame)
+    std::vector<std::pair<const GLine *, std::string>> rows;
     uint32_t spin = 0;
 } *S = nullptr;
 
@@ -80,7 +83,15 @@ void parse(const std::string &body, const std::string &base) {
             r = r.substr(a);
             size_t sp = r.find_first_of(" \t");
             std::string href = sp == std::string::npos ? r : r.substr(0, sp);
-            std::string label = sp == std::string::npos ? r : r.substr(r.find_first_not_of(" \t", sp));
+            // the label is whatever follows the whitespace after the href. Guard
+            // the npos case: "=> url   " (href then only spaces) made the old
+            // r.substr(find_first_not_of(...)) call substr(npos) and throw
+            // out_of_range -> abort() -> device reboot on such a link line.
+            std::string label;
+            if (sp != std::string::npos) {
+                size_t ls = r.find_first_not_of(" \t", sp);
+                if (ls != std::string::npos) label = r.substr(ls);
+            }
             g.kind = L_LINK;
             g.url = resolve(base, href);
             s.links.push_back(g.url);
@@ -102,6 +113,7 @@ void go(const char *url, bool pushHistory = true) {
     State &s = *S;
     if (pushHistory && !s.pendingBase.empty()) s.history.push_back(s.pendingBase);
     s.pendingBase = url;
+    s.parsed = false; // a new fetch; the next GEM_DONE should (re)parse once
     net::gemGet(url);
 }
 
@@ -226,10 +238,11 @@ void draw(uint32_t now) {
     }
     if (gs == net::GEM_ERROR) {
         char b[64];
-        snprintf(b, sizeof b, "status %d", net::gemStatus());
+        int status = net::gemStatus();
+        snprintf(b, sizeof b, status ? "gemini status %d" : "network failure", status);
         textCentre(b, 120, 54, C_BLOOD);
         std::string m = net::gemMeta();
-        textCentre(m.empty() ? "no response" : m.c_str(), 120, 68, C_DIM);
+        textCentre(m.empty() ? "no response from capsule" : m.c_str(), 120, 68, C_DIM);
         footer("u back  g go  b marks");
         return;
     }
@@ -266,30 +279,30 @@ void draw(uint32_t now) {
         return;
     }
 
-    // parse once per load
-    if (gs == net::GEM_DONE) {
-        static std::string shown;
-        std::string b = net::gemBody();
+    const int COLS = 38, X = 4, Y0 = 20, LH = 9, VIS = 11;
+
+    // Parse + wrap once per load, not per frame. The old code fetched the whole
+    // body (up to 32KB) and rebuilt the wrapped rows every single frame, churning
+    // a heap that WiFi/TLS also use.
+    if (gs == net::GEM_DONE && !s.parsed) {
         std::string url = net::gemURL();
-        if (url != s.pendingBase || b != shown || !s.loadedOnce) {
-            // (re)parse only when the body changed
+        parse(net::gemBody(), url.empty() ? s.pendingBase : url);
+        s.loadedOnce = true;
+        s.parsed = true;
+        s.rows.clear();
+        for (auto &g : s.lines) {
+            std::string prefix;
+            if (g.kind == L_LINK) { char n[8]; snprintf(n, sizeof n, "[%d] ", g.linkNo); prefix = n; }
+            else if (g.kind == L_LIST) prefix = "- ";
+            else if (g.kind == L_QUOTE) prefix = "| ";
+            std::string t = prefix + g.text;
+            if (t.empty()) { s.rows.push_back({&g, ""}); continue; }
+            for (size_t p = 0; p < t.size(); p += COLS) s.rows.push_back({&g, t.substr(p, COLS)});
         }
-        if (shown != b) { parse(b, url.empty() ? s.pendingBase : url); shown = b; }
     }
 
     // render with wrapping, 38 cols, from s.scroll
-    const int COLS = 38, X = 4, Y0 = 20, LH = 9, VIS = 11;
-    // build wrapped rows lazily
-    std::vector<std::pair<const GLine *, std::string>> rows;
-    for (auto &g : s.lines) {
-        std::string prefix;
-        if (g.kind == L_LINK) { char n[8]; snprintf(n, sizeof n, "[%d] ", g.linkNo); prefix = n; }
-        else if (g.kind == L_LIST) prefix = "- ";
-        else if (g.kind == L_QUOTE) prefix = "| ";
-        std::string t = prefix + g.text;
-        if (t.empty()) { rows.push_back({&g, ""}); continue; }
-        for (size_t p = 0; p < t.size(); p += COLS) rows.push_back({&g, t.substr(p, COLS)});
-    }
+    auto &rows = s.rows;
     int total = rows.size();
     if (s.scroll > total - 1) s.scroll = total > 0 ? total - 1 : 0;
     for (int i = 0; i < VIS && s.scroll + i < total; ++i) {
