@@ -312,6 +312,7 @@ void backToLauncher() { _exit(0); }
 } // namespace hal
 
 int main(int, char **) {
+    lgfx::Panel_sdl::setShortcutKeymod(KMOD_LCTRL);
     lcd = new Board();
     return lgfx::Panel_sdl::main(userFunc, 128);
 }

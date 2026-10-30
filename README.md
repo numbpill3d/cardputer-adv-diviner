@@ -67,17 +67,25 @@ pio run -e native         # desktop simulator (SDL2), 240x135 at 3x
 tools/shots.sh shots      # headless screenshots + WAVs of every rite
 ```
 
+### Running in the simulator
+
 The simulator plays audio through SDL, or to a file with `GRIM_WAV=out.wav`;
 `GRIM_SCRIPT` drives it headless (see `src/hal_native.cpp`). A prebuilt device
 image is in [`dist/`](dist/).
 
+- Ctrl+R / Ctrl+L: rotate screen (swap width/height).
+- Ctrl+1 through Ctrl+6: set window scale factor (1x–6x).
+
 ### Installing on the Cardputer
+
 Copy `firmware.bin` to the SD card and install it from the Launcher, or push it
 over USB serial while the Launcher is running (the Launcher grows the app
 partition to fit). The ADV is a full wipe from the factory firmware — back up
 first with `esptool read-flash 0 0x800000 backup.bin`.
 
-## Layout
+## Development
+
+### Layout
 - `src/hal.*` — the hardware seam. `hal_device.cpp`: M5Cardputer, ES8311 codec,
   TCA8418 keyboard, 24 kHz audio with a UI-sfx overlay. `hal_native.cpp`: LovyanGFX
   SDL panel + SDL/WAV audio.
@@ -86,6 +94,14 @@ first with `esptool read-flash 0 0x800000 backup.bin`.
 - `src/theme.*`, `src/daedric_glyphs.h`, `src/dsp.h`, `src/uisfx.h` — skin, font,
   DSP kit, UI sounds.
 - `src/apps/*.cpp` — one file per rite (`src/rite.h`).
+
+### Working with `clangd`
+
+For editors rely on `clangd` you may need to generate a `compile-comands.json` to make your LSP happy:
+
+```sh
+pio run -e native -t compiledb
+```
 
 ## Credits & license
 MIT — see [LICENSE](LICENSE). Daedric font: **OMW Ayembedt** (SIL OFL 1.1,
