@@ -1,3 +1,5 @@
 .pio/
 *.ppm
 *.wav
+compile_commands.json
+notes.md
