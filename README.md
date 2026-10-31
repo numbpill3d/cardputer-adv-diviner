@@ -97,7 +97,7 @@ first with `esptool read-flash 0 0x800000 backup.bin`.
 
 ### Working with `clangd`
 
-For editors which rely on `clangd` you may need to generate a `compile-comands.json` to make your LSP happy:
+For editors which rely on `clangd` you may need to generate a `compile_comands.json` to make your LSP happy:
 
 ```sh
 pio run -e native -t compiledb
