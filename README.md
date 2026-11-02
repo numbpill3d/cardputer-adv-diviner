@@ -73,8 +73,11 @@ The simulator plays audio through SDL, or to a file with `GRIM_WAV=out.wav`;
 `GRIM_SCRIPT` drives it headless (see `src/hal_native.cpp`). A prebuilt device
 image is in [`dist/`](dist/).
 
-- Ctrl+R / Ctrl+L: rotate screen (swap width/height).
-- Ctrl+1 through Ctrl+6: set window scale factor (1x–6x).
+- Left Ctrl+R / Left Ctrl+L: rotate screen (swap width/height).
+- Left Ctrl+1 through Left Ctrl+6: set window scale factor (1x–6x).
+
+These only fire with Left Ctrl alone (no Shift, Right Ctrl, or Num Lock);
+every other key goes to the app.
 
 ### Installing on the Cardputer
 

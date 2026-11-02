@@ -24,6 +24,9 @@
 void grimSetup();
 void grimLoop();
 
+// LovyanGFX simulator shortcuts (rotate R/L, scale 1..6) need exactly this modifier.
+static constexpr SDL_Keymod SIM_SHORTCUT_MOD = KMOD_LCTRL;
+
 namespace {
 struct Board : public lgfx::LGFX_Device {
     lgfx::Panel_sdl panel;
@@ -132,9 +135,10 @@ void scanSdl() {
         default:
             if (kc >= 32 && kc < 127) {
                 char c = (char)kc;
-                // consume LovyanGFX simulator shortcuts (Ctrl+R/L, Ctrl+1..6)
-                // so they don't leak into the app queue
-                if (ctrl && (c == 'r' || c == 'l' || (c >= '1' && c <= '6'))) continue;
+                // LovyanGFX takes R/L/1..6 only when the modifiers equal
+                // SIM_SHORTCUT_MOD exactly; drop those so they don't reach the app
+                if (mod == SIM_SHORTCUT_MOD && (c == 'r' || c == 'l' || (c >= '1' && c <= '6')))
+                    continue;
                 if (shift) c = shiftChar(c);
                 k.ch = c;
                 if (!shift) k.nav = navFor(c);
@@ -315,7 +319,7 @@ void backToLauncher() { _exit(0); }
 } // namespace hal
 
 int main(int, char **) {
-    lgfx::Panel_sdl::setShortcutKeymod(KMOD_LCTRL);
+    lgfx::Panel_sdl::setShortcutKeymod(SIM_SHORTCUT_MOD);
     lcd = new Board();
     return lgfx::Panel_sdl::main(userFunc, 128);
 }
