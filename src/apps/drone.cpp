@@ -46,6 +46,7 @@ struct State {
     float drift = 0.5f;     // 0..1
     bool wind = true, bells = true, freeze = false;
     bool safeMode = false;
+    float windAmp = 1;      // eases toward the wind toggle
     Voice v[NV];
     dsp::SVF filt, windF, bellF;
     dsp::Osc lfo, lfo2;
@@ -78,7 +79,7 @@ void retune(int i, bool snap) {
     if (snap) v.hz = v.target;
 }
 
-void seed() {
+void seed(bool snap) {
     // root, fifth, octave-ish spread, then two wanderers higher up
     const int deg[NV] = {0, 4, 0, 2, 6};
     const int oct[NV] = {0, 0, 1, 1, 1};
@@ -88,11 +89,11 @@ void seed() {
         v.octave = oct[i];
         v.ampTarget = 0.25f + (S->rng.next() % 100) / 160.f;
         v.swellRate = 0.00008f + (S->rng.next() % 100) * 0.000003f;
-        retune(i, true);
+        retune(i, snap);
     }
     S->v[0].degree = 0;
     S->v[0].octave = 0;
-    retune(0, true);
+    retune(0, snap);
 }
 
 void moveVoice() {
@@ -130,6 +131,7 @@ void render(int16_t *out, int n) {
             s.cutoffNow = cut;
             s.filt.set(cut, 0.35f + 0.25f * s.bright);
             s.windF.set(300.f + 900.f * (0.5f + 0.5f * l2), 0.85f);
+            s.windAmp += ((s.wind ? 1.f : 0.f) - s.windAmp) * 0.006f;
             if (!s.freeze && s.ctrl > s.nextMove) {
                 moveVoice();
                 uint32_t gap = (uint32_t)((1.f - s.drift) * 9.f * hal::RATE) + hal::RATE / 2;
@@ -151,7 +153,7 @@ void render(int16_t *out, int n) {
             mix += x * v.amp;
         }
         mix = s.filt.lp(mix * 0.32f);
-        if (s.wind) mix += s.windF.bp(s.rng.white()) * 0.09f;
+        if (s.windAmp > 0.001f) mix += s.windF.bp(s.rng.white()) * 0.09f * s.windAmp;
         float bl = s.bell.sine() * s.bellEnv.tick();
         mix += bl * 0.18f;
         // dark delay: two taps, low-passed feedback
@@ -185,7 +187,7 @@ void enter() {
 #else
     S->safeMode = false;
 #endif
-    seed();
+    seed(true);
     hal::setAudio(render);
 }
 void leave() {}
@@ -222,7 +224,7 @@ bool onKey(const hal::Key &k) {
     case 'b': s.bells = !s.bells; break;
     case 'q': s.safeMode = !s.safeMode; break;
     case ' ': s.freeze = !s.freeze; break;
-    case 'r': seed(); break;
+    case 'r': seed(false); break;
     }
     return true;
 }
