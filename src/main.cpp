@@ -259,7 +259,8 @@ void grimLoop() {
         bool wasNav = k.nav == hal::N_UP || k.nav == hal::N_DOWN || k.nav == hal::N_LEFT ||
                       k.nav == hal::N_RIGHT;
         if (!active->key(k)) close();
-        else if (wasNav) uisfx::trigger(uisfx::MOVE); // click on list/grid moves in any rite
+        // click on list/grid moves in any rite, except over the drone's held sound
+        else if (wasNav && active != &RITE_DRONE) uisfx::trigger(uisfx::MOVE);
     }
 
     uint32_t now = hal::ms();
