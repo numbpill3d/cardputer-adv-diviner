@@ -26,7 +26,11 @@ namespace {
 enum Proto { P_NEC, P_SONY, P_RC5, P_SAMSUNG, P_PANA, N_PROTO };
 const char *PROTO_NAMES[N_PROTO] = {"NEC", "Sony", "RC5", "Sam", "Pana"};
 
-enum Action { A_POWER, A_VOLUP, A_VOLDOWN, A_MUTE, A_INPUT, A_CHUP, A_CHDOWN };
+enum Action {
+    A_POWER, A_VOLUP, A_VOLDOWN, A_MUTE, A_INPUT, A_CHUP, A_CHDOWN,
+    A_MENU, A_BACK, A_HOME, A_INFO, A_GUIDE, A_SLEEP,
+    A_PLAY, A_PAUSE, A_STOP, A_REW, A_FF
+};
 
 struct Code {
     const char *name;
@@ -43,6 +47,11 @@ const Code CODES[] = {
     {"LG vol-", P_NEC, 0x04, 0x03, A_VOLDOWN}, {"LG mute", P_NEC, 0x04, 0x09, A_MUTE},
     {"LG input", P_NEC, 0x04, 0x0B, A_INPUT}, {"LG ch+", P_NEC, 0x04, 0x00, A_CHUP},
     {"LG ch-", P_NEC, 0x04, 0x01, A_CHDOWN}, {"NEC power", P_NEC, 0x00, 0x08, A_POWER},
+    {"LG menu", P_NEC, 0x04, 0x43, A_MENU}, {"LG back", P_NEC, 0x04, 0x28, A_BACK},
+    {"LG home", P_NEC, 0x04, 0x40, A_HOME}, {"LG info", P_NEC, 0x04, 0xAA, A_INFO},
+    {"LG guide", P_NEC, 0x04, 0xAB, A_GUIDE}, {"LG play", P_NEC, 0x04, 0x44, A_PLAY},
+    {"LG pause", P_NEC, 0x04, 0x46, A_PAUSE}, {"LG stop", P_NEC, 0x04, 0x45, A_STOP},
+    {"LG rewind", P_NEC, 0x04, 0x4C, A_REW}, {"LG forward", P_NEC, 0x04, 0x4D, A_FF},
     {"NEC vol+", P_NEC, 0x00, 0x18, A_VOLUP}, {"NEC vol-", P_NEC, 0x00, 0x19, A_VOLDOWN},
     {"NEC mute", P_NEC, 0x00, 0x1A, A_MUTE}, {"NEC input", P_NEC, 0x00, 0x1B, A_INPUT},
     {"TCL power", P_NEC, 0x00, 0x40, A_POWER}, {"TCL input", P_NEC, 0x00, 0x45, A_INPUT},
@@ -51,6 +60,12 @@ const Code CODES[] = {
     {"Sam power", P_SAMSUNG, 0xE0E0, 0x40, A_POWER}, {"Sam vol+", P_SAMSUNG, 0xE0E0, 0x07, A_VOLUP},
     {"Sam vol-", P_SAMSUNG, 0xE0E0, 0x0B, A_VOLDOWN}, {"Sam mute", P_SAMSUNG, 0xE0E0, 0x0D, A_MUTE},
     {"Sam source", P_SAMSUNG, 0xE0E0, 0x01, A_INPUT}, {"Sam alt power", P_SAMSUNG, 0x0707, 0x02, A_POWER},
+    {"Sam menu", P_SAMSUNG, 0xE0E0, 0x58, A_MENU}, {"Sam back", P_SAMSUNG, 0xE0E0, 0x28, A_BACK},
+    {"Sam home", P_SAMSUNG, 0xE0E0, 0x79, A_HOME}, {"Sam info", P_SAMSUNG, 0xE0E0, 0x1F, A_INFO},
+    {"Sam guide", P_SAMSUNG, 0xE0E0, 0x4A, A_GUIDE}, {"Sam sleep", P_SAMSUNG, 0xE0E0, 0x1B, A_SLEEP},
+    {"Sam play", P_SAMSUNG, 0xE0E0, 0x2E, A_PLAY}, {"Sam pause", P_SAMSUNG, 0xE0E0, 0x4B, A_PAUSE},
+    {"Sam stop", P_SAMSUNG, 0xE0E0, 0x46, A_STOP}, {"Sam rewind", P_SAMSUNG, 0xE0E0, 0x45, A_REW},
+    {"Sam forward", P_SAMSUNG, 0xE0E0, 0x48, A_FF},
     {"Sony power", P_SONY, 0x01, 0x15, A_POWER}, {"Sony vol+", P_SONY, 0x01, 0x12, A_VOLUP},
     {"Sony vol-", P_SONY, 0x01, 0x13, A_VOLDOWN}, {"Sony mute", P_SONY, 0x01, 0x14, A_MUTE},
     {"Sony input", P_SONY, 0x01, 0x25, A_INPUT}, {"Sony ch+", P_SONY, 0x01, 0x10, A_CHUP},

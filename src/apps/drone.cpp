@@ -41,13 +41,16 @@ struct TonePreset {
     float lfo2;
     float delay;
     float bellTime;
+    uint8_t bellShape; // 0 sine, 1 triangle, 2 overtone, 3 soft square
+    float bellRatio;
+    float bellMix;
 };
 const TonePreset TONES[] = {
-    {"warm",   0, 0.0031f, 0.60f, 1.00f, 0.35f, 0.045f, 0.013f, 0.62f, 1.60f},
-    {"hollow", 1, 0.0014f, 0.95f, 0.72f, 0.58f, 0.027f, 0.009f, 0.48f, 2.20f},
-    {"glass",  2, 0.0060f, 0.25f, 1.35f, 0.22f, 0.071f, 0.021f, 0.68f, 1.10f},
-    {"pulse",  3, 0.0022f, 0.12f, 0.82f, 0.70f, 0.038f, 0.017f, 0.42f, 1.35f},
-    {"abyss",  0, 0.0018f, 1.05f, 0.48f, 0.76f, 0.018f, 0.006f, 0.78f, 2.80f},
+    {"warm",   0, 0.0031f, 0.60f, 1.00f, 0.35f, 0.045f, 0.013f, 0.62f, 1.60f, 0, 2.00f, 0.00f},
+    {"hollow", 1, 0.0014f, 0.95f, 0.72f, 0.58f, 0.027f, 0.009f, 0.48f, 2.20f, 1, 1.50f, 0.18f},
+    {"glass",  2, 0.0060f, 0.25f, 1.35f, 0.22f, 0.071f, 0.021f, 0.68f, 1.10f, 2, 2.01f, 0.48f},
+    {"pulse",  3, 0.0022f, 0.12f, 0.82f, 0.70f, 0.038f, 0.017f, 0.42f, 1.35f, 3, 2.00f, 0.10f},
+    {"abyss",  0, 0.0018f, 1.05f, 0.48f, 0.76f, 0.018f, 0.006f, 0.78f, 2.80f, 2, 1.498f, 0.32f},
 };
 constexpr int N_TONES = sizeof(TONES) / sizeof(TONES[0]);
 
@@ -74,6 +77,7 @@ struct State {
     dsp::Osc lfo, lfo2;
     dsp::Noise rng;
     dsp::Osc bell;
+    dsp::Osc bell2;
     dsp::Decay bellEnv;
     float bellHz = 880;
     // Keep the feedback buffer below 20 KB on the PSRAM-less Cardputer. The
@@ -174,6 +178,7 @@ void render(int16_t *out, int n) {
                 int d = s.rng.next() % sc.n;
                 s.bellHz = dsp::midiHz(s.root + sc.steps[d] + 36 + (s.rng.next() & 1) * 12);
                 s.bell.hz(s.bellHz);
+                s.bell2.hz(s.bellHz * tp.bellRatio);
                 s.bellF.set(s.bellHz, 0.98f);
                 s.bellEnv.trigger(0.5f);
             }
@@ -193,7 +198,14 @@ void render(int16_t *out, int n) {
         }
         mix = s.filt.lp(mix * 0.32f);
         if (s.windAmp > 0.001f) mix += s.windF.bp(s.rng.white()) * 0.09f * s.windAmp;
-        float bl = s.bell.sine() * s.bellEnv.tick();
+        float bellTone;
+        switch (tp.bellShape) {
+        case 1: bellTone = s.bell.tri() * 0.78f + s.bell2.sine() * tp.bellMix; break;
+        case 2: bellTone = s.bell.sine() * 0.78f + s.bell2.sine() * tp.bellMix; break;
+        case 3: bellTone = s.bell.square() * 0.32f + s.bell2.sine() * tp.bellMix; break;
+        default: bellTone = s.bell.sine(); break;
+        }
+        float bl = bellTone * s.bellEnv.tick();
         mix += bl * 0.18f;
         // dark delay: two taps, low-passed feedback
         float wet = s.safeMode ? 0.f : s.dl.tap(4095) * (tp.delay * 0.89f) + s.dl.tap(3072) * (tp.delay * 0.48f);
@@ -222,6 +234,7 @@ void enter() {
     S->lfo.hz(TONES[S->tone].lfo);
     S->lfo2.hz(TONES[S->tone].lfo2);
     S->bellEnv.time(TONES[S->tone].bellTime);
+    S->bell2.hz(S->bellHz * TONES[S->tone].bellRatio);
     S->bellF.set(880, 0.9f);
 #ifdef GRIM_DEVICE
     // Radio rites can leave the PSRAM-less S3 heap fragmented. Safe mode keeps
@@ -270,6 +283,7 @@ bool onKey(const hal::Key &k) {
         s.lfo.hz(TONES[s.tone].lfo);
         s.lfo2.hz(TONES[s.tone].lfo2);
         s.bellEnv.time(TONES[s.tone].bellTime);
+        s.bell2.hz(s.bellHz * TONES[s.tone].bellRatio);
         break;
     case 'q': s.safeMode = !s.safeMode; break;
     case ' ': s.freeze = !s.freeze; break;
