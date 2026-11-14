@@ -61,6 +61,13 @@ struct State {
     float dlLp = 0;
     uint32_t ctrl = 0, nextMove = 0;
     float cutoffNow = 600;
+    // Small visual meters shared from the audio callback. They deliberately
+    // lag the signal: the display should breathe with the sound, not jitter at
+    // the 24 kHz sample rate.
+    volatile float visualEnergy = 0;
+    volatile float visualWind = 0;
+    volatile float visualBell = 0;
+    volatile float visualDelay = 0;
     dsp::Scope scope;
     volatile int lastMoved = -1;
     volatile uint32_t movedAt = 0;
@@ -161,6 +168,10 @@ void render(int16_t *out, int n) {
         s.dlLp += (wet - s.dlLp) * 0.18f;
         s.dl.put(mix + s.dlLp * 0.62f);
         float o = mix * 0.8f + s.dlLp * 0.5f;
+        s.visualEnergy += (fabsf(o) - s.visualEnergy) * 0.0035f;
+        s.visualWind += (fabsf(s.windAmp > 0.001f ? s.windF.band : 0.f) - s.visualWind) * 0.008f;
+        s.visualBell = s.bellEnv.v;
+        s.visualDelay += (fabsf(s.dlLp) - s.visualDelay) * 0.006f;
         int16_t p = dsp::toPcm(o * 0.9f);
         out[i] = p;
         if ((i & 3) == 0) s.scope.put(p);
@@ -235,41 +246,96 @@ void draw(uint32_t now) {
     cv.fillScreen(C_VOID);
     header("DRONE", "drone");
 
-    // mandala: each voice is a ring of 7 nodes; radius from pitch, glow from amp
-    const int cx = 70, cy = 75;
-    float rot = now * 0.00012f;
-    cv.drawCircle(cx, cy, 52, C_DUSK);
+    // The left side is a living sound field. Each voice gets its own orbit:
+    // pitch sets its distance, amplitude sets its body, and drift bends its
+    // path. The same field remains recognizable when the sound is frozen.
+    const int cx = 70, cy = 74;
+    const float t = now * 0.001f;
+    float energy = fminf(1.f, s.visualEnergy * 3.2f);
+    float wind = fminf(1.f, s.visualWind * 8.f) * s.windAmp;
+    float cutoff = fminf(1.f, s.cutoffNow / 2800.f);
+    float breath = 1.f + 0.10f * sinf(t * 1.4f) + 0.16f * energy;
+    int shell = 25 + (int)(cutoff * 25.f + energy * 7.f);
+
+    // Filter cutoff is the creature's breathing aperture; feedback makes a
+    // dim afterimage rather than a hard-edged static mandala.
+    cv.drawCircle(cx, cy, shell + 5, blend(C_BLOOD, C_VOID, (uint8_t)(35 + cutoff * 55)));
+    cv.drawCircle(cx, cy, shell, blend(C_DUSK, C_VOID, (uint8_t)(100 + cutoff * 80)));
+    if (s.visualDelay > 0.015f) {
+        int ghost = shell + 10 + (int)(s.visualDelay * 30.f);
+        cv.drawCircle(cx, cy, ghost, blend(C_RUST, C_VOID, (uint8_t)fminf(150.f, 35.f + s.visualDelay * 400.f)));
+    }
+
     for (int k = 0; k < NV; ++k) {
         const Voice &v = s.v[k];
-        float r = 14 + log2f(v.hz / 30.f) * 9.f;
-        if (r > 50) r = 50;
-        uint8_t a = (uint8_t)fminf(255.f, 60 + v.amp * 260.f);
-        uint16_t c = blend(k == s.lastMoved && now - s.movedAt < 1500 ? C_GLOW : C_EMBER, C_VOID, a);
-        int nodes = 7;
-        float ph = rot * (k & 1 ? -1.f : 1.f) * (1 + k * 0.3f);
-        int px0 = 0, py0 = 0, fx = 0, fy = 0;
-        for (int j = 0; j <= nodes; ++j) {
-            float t = ph + j * 6.2831853f / nodes;
-            int px = cx + (int)(cosf(t) * r), py = cy + (int)(sinf(t) * r);
-            if (j) cv.drawLine(px0, py0, px, py, blend(C_BLOOD, C_VOID, a));
-            else { fx = px; fy = py; }
-            px0 = px;
-            py0 = py;
-            if (j < nodes) cv.fillCircle(px, py, 1, c);
+        float pitch = fminf(1.f, fmaxf(0.f, log2f(v.hz / 45.f) / 4.8f));
+        float amp = fminf(1.f, v.amp * 0.95f);
+        float orbit = 13.f + pitch * 29.f + amp * 5.f;
+        float dir = (k & 1) ? -1.f : 1.f;
+        float phase = t * dir * (0.20f + k * 0.035f) + k * 1.2566f;
+        float wobble = (0.8f + s.drift * 2.2f) * sinf(t * (0.31f + k * 0.047f) + k);
+        uint8_t alpha = (uint8_t)fminf(255.f, 70.f + amp * 170.f + energy * 45.f);
+        bool moved = k == s.lastMoved && now - s.movedAt < 1500;
+        uint16_t body = blend(moved ? C_GLOW : C_EMBER, C_VOID, alpha);
+        uint16_t trail = blend(k == 0 ? C_RUST : C_BLOOD, C_VOID, alpha / 2 + 20);
+
+        // Two passes make each orbit feel like a soft strand instead of a
+        // polygon: a dim outer filament and a brighter inner filament.
+        int ox = 0, oy = 0;
+        for (int j = 0; j <= 18; ++j) {
+            float a = phase + j * 6.2831853f / 18.f;
+            float rr = orbit + wobble * sinf(a * 2.f + k) + 2.5f * sinf(a * 3.f - t);
+            int x = cx + (int)(cosf(a) * rr * 1.08f);
+            int y = cy + (int)(sinf(a) * rr * 0.72f);
+            if (j) cv.drawLine(ox, oy, x, y, trail);
+            ox = x;
+            oy = y;
+            if (j % 3 == 0) cv.fillCircle(x, y, amp > 0.55f ? 2 : 1, body);
         }
-        (void)fx; (void)fy;
+
+        float head = phase + 0.9f;
+        float hr = orbit + wobble * sinf(head * 2.f + k);
+        int hx = cx + (int)(cosf(head) * hr * 1.08f);
+        int hy = cy + (int)(sinf(head) * hr * 0.72f);
+        cv.fillCircle(hx, hy, 2 + (int)(amp * 2.f), moved ? C_GLOW : C_RUST);
     }
-    // polar scope in the middle
+
+    // Wind is drawn as long, asymmetric filaments. The slow bends follow the
+    // same LFOs as the audio filter, while the phase offsets keep them organic.
+    for (int strand = 0; strand < 4; ++strand) {
+        int ox = 0, oy = 0;
+        for (int j = 0; j <= 12; ++j) {
+            float u = j / 12.f;
+            float x0 = 19.f + u * 100.f;
+            float y0 = cy + (strand - 1.5f) * 8.f;
+            float bend = sinf(t * (0.7f + strand * 0.13f) + u * 4.2f + strand) * (4.f + wind * 13.f);
+            int x = (int)x0;
+            int y = (int)(y0 + bend + sinf(u * 8.f - t * 0.5f) * wind * 3.f);
+            if (j) cv.drawLine(ox, oy, x, y, blend(C_BONE, C_VOID, (uint8_t)(wind * 90.f)));
+            ox = x;
+            oy = y;
+        }
+    }
+
+    // The waveform is the organism's heart. Bells punch out concentric rings
+    // so a transient is visible even when the continuous drone is quiet.
     int w = s.scope.w;
     int lx = 0, ly = 0;
     for (int i = 0; i <= 64; ++i) {
-        int16_t v = s.scope.s[(w + i * 4) & (dsp::Scope::N - 1)];
-        float r = 10 + v / 2400.f;
-        float t = i * 6.2831853f / 64;
-        int px = cx + (int)(cosf(t) * r), py = cy + (int)(sinf(t) * r);
-        if (i) cv.drawLine(lx, ly, px, py, C_RUST);
-        lx = px;
-        ly = py;
+        int16_t sample = s.scope.s[(w + i * 4) & (dsp::Scope::N - 1)];
+        float radius = 6.f + sample / 4200.f * (5.f + energy * 8.f);
+        float a = i * 6.2831853f / 64.f + t * 0.08f;
+        int x = cx + (int)(cosf(a) * radius);
+        int y = cy + (int)(sinf(a) * radius);
+        if (i) cv.drawLine(lx, ly, x, y, C_GLOW);
+        lx = x;
+        ly = y;
+    }
+    if (s.visualBell > 0.02f) {
+        float ring = 10.f + (1.f - s.visualBell) * 38.f;
+        uint8_t ringAlpha = (uint8_t)fminf(220.f, s.visualBell * 300.f);
+        cv.drawCircle(cx, cy, (int)ring, blend(C_GLOW, C_VOID, ringAlpha));
+        cv.drawCircle(cx, cy, (int)(ring + 3), blend(C_RUST, C_VOID, ringAlpha / 2));
     }
 
     // panel
