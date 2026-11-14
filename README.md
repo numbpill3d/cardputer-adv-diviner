@@ -39,18 +39,14 @@ blood-and-ember aesthetic, with a hand-rasterised Daedric glyph font.
 ### ◈ the wired
 | | | |
 |---|---|---|
-| ![link](docs/previews/link.png) | ![scry](docs/previews/scry.png) | ![listen](docs/previews/listen.png) |
-| **link** — join Wi-Fi (remembers networks); **captive-portal detect + click-through accept**; merges scans so flaky hotspots stick<br>*(2.4GHz only — set phone hotspots to 2.4GHz)* | **scry** — Wi-Fi networks as a constellation | **listen** — receive-only channel monitor you can hear |
-| ![kin](docs/previews/kin.png) | ![net](docs/previews/net.png) | ![gemini](docs/previews/gemini.png) |
-| **kin** — Bluetooth devices as drifting familiars | **net** — map the LAN: hosts, names, open ports | **gemini** — gemtext browser over TLS (+ posting) |
+| ![kin](docs/previews/kin.png) | | |
+| **kin** — Bluetooth devices as drifting familiars | | |
 | ![banish](docs/previews/banish.png) | | |
-| **banish** — IR remote: TV power/volume across 5 protocols | | |
+| **banish** — IR remote: common TV power, volume, mute, input and channel codes across 5 protocols | | |
 
-### ◈ wards
-| | | |
-|---|---|---|
-| ![sentinel](docs/previews/sentinel.png) | ![pulse](docs/previews/pulse.png) | ![probe](docs/previews/probe.png) |
-| **sentinel** — learns a baseline, then alarms on unknown devices; flags likely **drones** | **pulse** — Wi-Fi CSI motion / presence radar (experimental) | **probe** — active HTTP recon + default-credential check on an authorized host |
+The Gemini and Wi-Fi/network rites are temporarily retired from the firmware
+build to leave more room for the local IR remote and its expanded code bank.
+Their source files remain in the repository for a later reintroduction.
 
 Everywhere: the top button (G0) or `` ` `` leaves a rite; twice in the menu returns
 to the Launcher. `Fn` + `-`/`=` sets the volume. Menu and list navigation have

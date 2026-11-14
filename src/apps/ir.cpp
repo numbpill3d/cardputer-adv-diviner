@@ -1,15 +1,13 @@
-// BANISH — an infrared remote. Sends power/mute/volume codes across the common
-// TV protocols (NEC, Sony SIRC, RC5, Samsung, Panasonic), plus a "banish all"
-// sweep that fires every power code in turn, TV-B-Gone style, to quiet a room.
+// BANISH — an infrared remote. Sends common TV actions across several protocol
+// families, plus a "banish all" sweep that tries every power variant in turn.
 //
 // The ADV's IR LED pin isn't documented; GRIM_IR_PIN defaults to 44 (the
 // original Cardputer's). If beaming does nothing, that's the thing to change.
 //
-// keys  ;/.  move   enter send   b banish all   ,/ protocol
+// keys  ;/. move   enter send   b power sweep
 #include "../rite.h"
 #include "../theme.h"
 #include <math.h>
-#include <string.h>
 #include <stdio.h>
 
 #ifndef GRIM_IR_PIN
@@ -26,22 +24,42 @@ using namespace theme;
 
 namespace {
 enum Proto { P_NEC, P_SONY, P_RC5, P_SAMSUNG, P_PANA, N_PROTO };
-const char *PROTO_NAMES[N_PROTO] = {"NEC", "Sony", "RC5", "Samsung", "Panason"};
+const char *PROTO_NAMES[N_PROTO] = {"NEC", "Sony", "RC5", "Sam", "Pana"};
+
+enum Action { A_POWER, A_VOLUP, A_VOLDOWN, A_MUTE, A_INPUT, A_CHUP, A_CHDOWN };
 
 struct Code {
     const char *name;
     uint8_t proto;
     uint16_t addr;
     uint16_t cmd;
+    Action action;
 };
-// A small, generic bank. Power codes feed the "banish all" sweep.
+// Keep this table in flash: it covers common address/command layouts used by
+// LG, TCL, Hisense, Vizio, Philips, Sony, Panasonic and Samsung sets. A
+// remote's exact code varies by chassis, so each family gets useful variants.
 const Code CODES[] = {
-    {"TV power", P_NEC, 0x04, 0x08},     {"TV power", P_SAMSUNG, 0x0707, 0x02},
-    {"TV power", P_SONY, 0x01, 0x15},    {"TV power", P_RC5, 0x00, 0x0C},
-    {"TV power", P_PANA, 0x4004, 0x0100},{"volume +", P_NEC, 0x04, 0x02},
-    {"volume -", P_NEC, 0x04, 0x03},     {"mute", P_NEC, 0x04, 0x09},
-    {"input", P_NEC, 0x04, 0x0B},        {"vol+ sony", P_SONY, 0x01, 0x12},
-    {"vol- sony", P_SONY, 0x01, 0x13},   {"power samsung", P_SAMSUNG, 0x0707, 0x99},
+    {"LG power", P_NEC, 0x04, 0x08, A_POWER}, {"LG vol+", P_NEC, 0x04, 0x02, A_VOLUP},
+    {"LG vol-", P_NEC, 0x04, 0x03, A_VOLDOWN}, {"LG mute", P_NEC, 0x04, 0x09, A_MUTE},
+    {"LG input", P_NEC, 0x04, 0x0B, A_INPUT}, {"LG ch+", P_NEC, 0x04, 0x00, A_CHUP},
+    {"LG ch-", P_NEC, 0x04, 0x01, A_CHDOWN}, {"NEC power", P_NEC, 0x00, 0x08, A_POWER},
+    {"NEC vol+", P_NEC, 0x00, 0x18, A_VOLUP}, {"NEC vol-", P_NEC, 0x00, 0x19, A_VOLDOWN},
+    {"NEC mute", P_NEC, 0x00, 0x1A, A_MUTE}, {"NEC input", P_NEC, 0x00, 0x1B, A_INPUT},
+    {"TCL power", P_NEC, 0x00, 0x40, A_POWER}, {"TCL input", P_NEC, 0x00, 0x45, A_INPUT},
+    {"Hisense pwr", P_NEC, 0x00, 0x1A, A_POWER}, {"Hisense input", P_NEC, 0x00, 0x0D, A_INPUT},
+    {"Vizio power", P_NEC, 0x01, 0x0C, A_POWER}, {"Vizio input", P_NEC, 0x01, 0x0B, A_INPUT},
+    {"Sam power", P_SAMSUNG, 0xE0E0, 0x40, A_POWER}, {"Sam vol+", P_SAMSUNG, 0xE0E0, 0x07, A_VOLUP},
+    {"Sam vol-", P_SAMSUNG, 0xE0E0, 0x0B, A_VOLDOWN}, {"Sam mute", P_SAMSUNG, 0xE0E0, 0x0D, A_MUTE},
+    {"Sam source", P_SAMSUNG, 0xE0E0, 0x01, A_INPUT}, {"Sam alt power", P_SAMSUNG, 0x0707, 0x02, A_POWER},
+    {"Sony power", P_SONY, 0x01, 0x15, A_POWER}, {"Sony vol+", P_SONY, 0x01, 0x12, A_VOLUP},
+    {"Sony vol-", P_SONY, 0x01, 0x13, A_VOLDOWN}, {"Sony mute", P_SONY, 0x01, 0x14, A_MUTE},
+    {"Sony input", P_SONY, 0x01, 0x25, A_INPUT}, {"Sony ch+", P_SONY, 0x01, 0x10, A_CHUP},
+    {"Sony ch-", P_SONY, 0x01, 0x11, A_CHDOWN}, {"Philips power", P_RC5, 0x00, 0x0C, A_POWER},
+    {"Philips vol+", P_RC5, 0x00, 0x10, A_VOLUP}, {"Philips vol-", P_RC5, 0x00, 0x11, A_VOLDOWN},
+    {"Philips mute", P_RC5, 0x00, 0x0D, A_MUTE}, {"Philips input", P_RC5, 0x00, 0x2F, A_INPUT},
+    {"Pana power", P_PANA, 0x4004, 0x0100, A_POWER}, {"Pana vol+", P_PANA, 0x4004, 0x0050, A_VOLUP},
+    {"Pana vol-", P_PANA, 0x4004, 0x0051, A_VOLDOWN}, {"Pana mute", P_PANA, 0x4004, 0x005D, A_MUTE},
+    {"Pana input", P_PANA, 0x4004, 0x00D5, A_INPUT},
 };
 constexpr int N_CODES = sizeof(CODES) / sizeof(CODES[0]);
 
@@ -56,11 +74,11 @@ struct State {
 void sendCode(const Code &c) {
 #ifdef GRIM_DEVICE
     switch (c.proto) {
-    case P_NEC: IrSender.sendNEC(c.addr, c.cmd, 1); break;
-    case P_SONY: IrSender.sendSony(c.addr, c.cmd, 1, 12); break;
-    case P_RC5: IrSender.sendRC5(c.addr, c.cmd, 1); break;
-    case P_SAMSUNG: IrSender.sendSamsung(c.addr, c.cmd, 1); break;
-    case P_PANA: IrSender.sendPanasonic(c.addr, c.cmd, 1); break;
+    case P_NEC: IrSender.sendNEC(c.addr, c.cmd, 2); break;
+    case P_SONY: IrSender.sendSony(c.addr, c.cmd, 2, 12); break;
+    case P_RC5: IrSender.sendRC5(c.addr, c.cmd, 2); break;
+    case P_SAMSUNG: IrSender.sendSamsung(c.addr, c.cmd, 2); break;
+    case P_PANA: IrSender.sendPanasonic(c.addr, c.cmd, 2); break;
     }
 #endif
     S->beamAt = hal::ms();
@@ -70,7 +88,7 @@ void sendCode(const Code &c) {
 void enter() {
     if (!S) S = new State();
 #ifdef GRIM_DEVICE
-    IrSender.begin(GRIM_IR_PIN);
+    IrSender.begin();
 #endif
 }
 void leave() { S->banish = -1; }
@@ -96,7 +114,7 @@ void draw(uint32_t now) {
             // advance to the next power code
             int found = -1, count = 0;
             for (int i = 0; i < N_CODES; ++i)
-                if (CODES[i].cmd, strstr(CODES[i].name, "power")) {
+                if (CODES[i].action == A_POWER) {
                     if (count == s.banish) { found = i; break; }
                     count++;
                 }

@@ -13,9 +13,7 @@ using namespace theme;
 namespace {
 const Rite *const RITES[] = {&RITE_DRONE,  &RITE_SEQ,    &RITE_BEAT,
                              &RITE_WIRED,  &RITE_VISIONS, &RITE_ORACLE,
-                             &RITE_LINK,   &RITE_SCRY,   &RITE_LISTEN,
-                             &RITE_KIN,    &RITE_NET,    &RITE_GEMINI, &RITE_IR,
-                             &RITE_SENTINEL, &RITE_PULSE, &RITE_PROBE};
+                             &RITE_KIN,    &RITE_IR};
 constexpr int N_RITES = sizeof(RITES) / sizeof(RITES[0]);
 constexpr uint32_t FRAME_MS = 33;
 
